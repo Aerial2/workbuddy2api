@@ -15,6 +15,7 @@ type idleMonitoringBody struct {
 	rc       io.ReadCloser
 	mu       sync.Mutex
 	lastRead time.Time
+	timedOut bool
 	stopOnce sync.Once
 	stopCh   chan struct{}
 	cancel   context.CancelFunc
@@ -22,11 +23,14 @@ type idleMonitoringBody struct {
 
 func (b *idleMonitoringBody) Read(p []byte) (int, error) {
 	n, err := b.rc.Read(p)
+	b.mu.Lock()
 	if n > 0 {
-		b.mu.Lock()
 		b.lastRead = time.Now()
-		b.mu.Unlock()
 	}
+	if err != nil && b.timedOut {
+		err = context.DeadlineExceeded
+	}
+	b.mu.Unlock()
 	return n, err
 }
 
@@ -37,10 +41,15 @@ func (b *idleMonitoringBody) Close() error {
 	return b.rc.Close()
 }
 
-func (b *idleMonitoringBody) idleFor() time.Duration {
+func (b *idleMonitoringBody) expireIfIdle(idle time.Duration) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return time.Since(b.lastRead)
+	if time.Since(b.lastRead) <= idle {
+		return false
+	}
+	// Preserve timeout semantics instead of reporting a client cancellation.
+	b.timedOut = true
+	return true
 }
 
 // monitorBody 若 idle<=0 直接返回原底流（禁用空闲监控）；
@@ -64,7 +73,7 @@ func monitorBody(rc io.ReadCloser, idle time.Duration, cancel context.CancelFunc
 			case <-b.stopCh:
 				return
 			case <-t.C:
-				if b.idleFor() > idle {
+				if b.expireIfIdle(idle) {
 					cancel()
 					return
 				}

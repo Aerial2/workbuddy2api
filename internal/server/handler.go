@@ -16,6 +16,7 @@ import (
 	"workbuddy2api/internal/logfmt"
 	"workbuddy2api/internal/pool"
 	"workbuddy2api/internal/prompt"
+	"workbuddy2api/internal/requestlog"
 	"workbuddy2api/internal/session"
 	"workbuddy2api/internal/upstream"
 )
@@ -42,6 +43,12 @@ type Config struct {
 	PromptMode string
 	// PromptText custom 模式下注入的系统提示词文本（来自 config.PromptText）。
 	PromptText string
+
+	// Admin Web 管理界面 handler（internal/admin），挂载在 /admin/ 下；nil = 不启用。
+	// 页面自身不鉴权（浏览器导航请求带不了 Authorization），页面内所有 /admin/api/*
+	// 由 admin 包自行校验同一把 api_key。
+	Admin       http.Handler
+	RequestLogs *requestlog.Store
 }
 
 // notFoundCooldown 上游 404 的固定短冷却时长。
@@ -80,10 +87,18 @@ func NewHandler(cfg Config) *Handler {
 		cfg.MaxBodyBytes = 8 << 20 // 请求体上限兜底 8MB
 	}
 	h := &Handler{cfg: cfg, mux: http.NewServeMux()}
-	h.mux.HandleFunc("POST /v1/chat/completions", h.withAuth(h.chatCompletions))
+	h.mux.HandleFunc("POST /v1/chat/completions", h.captureRequest(h.withAuth(h.chatCompletions)))
 	h.mux.HandleFunc("GET /v1/models", h.withAuth(h.models))
 	h.mux.HandleFunc("GET /status", h.withAuth(h.status))
 	h.mux.HandleFunc("GET /healthz", h.healthz)
+	if cfg.Admin != nil {
+		// /admin/ → 管理界面（子路由由 admin 包内部处理）
+		h.mux.Handle("/admin/", http.StripPrefix("/admin", cfg.Admin))
+		// /admin → 302 到 /admin/（否则会被上面的子树模式匹配成「找不到静态文件」）
+		h.mux.HandleFunc("GET /admin", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/admin/", http.StatusFound)
+		})
+	}
 	return h
 }
 
@@ -263,6 +278,12 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// 请求级统计：出口即打一行表格日志（任何路径都会走到）。
 	st := newChatStat(time.Now(), body, peek.Stream)
 	defer st.done()
+	record := requestRecord(r)
+	record.Model, record.Mode = st.model, st.mode
+	defer func() {
+		record.FirstTokenMS = st.ttfb.Milliseconds()
+		record.CompletionTokens = st.toks
+	}()
 
 	tried := map[string]bool{}
 	var lastErr error
@@ -352,11 +373,16 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 			continue // 最后一个名额被并发抢走 → 换号
 		}
 		heldUID = acct.UID
+		record.UID = acct.UID
+		record.Accounts = append(record.Accounts, acct.UID)
+		record.AttemptDetails = append(record.AttemptDetails, requestlog.Attempt{UID: acct.UID})
+		record.Attempts++
 
 		// token 临近过期 → 先 refresh（失败冷却换号）
 		if acct.NeedsRefresh(h.cfg.RefreshSkew) {
 			if err := h.cfg.Upstream.RefreshToken(acct); err != nil {
 				lastErr = err
+				record.NoteFailure(requestErrorCode(err, "refresh_failed"))
 				var ue *upstream.Error
 				if errors.As(err, &ue) && ue.Kind == upstream.ErrSessionDead {
 					h.cfg.Pool.Disable(acct.UID, "refresh session dead")
@@ -378,12 +404,14 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 			// 上游 client 已打 transport error 日志。
 			st.status = http.StatusServiceUnavailable
 			lastErr = terr
+			record.NoteFailure(requestErrorCode(terr, "transport"))
 			fail(acct.UID)
 			continue
 		}
 		if status >= 400 {
 			st.status = status
 			kind := upstream.Classify(status, string(respBody))
+			record.NoteFailure(kind.String())
 			// 内容拦截误报（passthrough 模式首遇）：判定为 system 指纹误报，
 			// 触发降级到次日 00:00 CST，换 Degraded 中性提示词同请求内重试。
 			// 第二次仍被拦（用户内容本身触发审核）→ 走既有错误路径返回客户端。
@@ -412,15 +440,31 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 			// 流式：透传结束后立即关闭上游 body，避免 defer 在轮转场景下堆积 fd。
 			st.status = http.StatusOK
 			stats := newChatStatsReaderSince(rc, st.start)
-			_ = upstream.Stream(w, stats)
+			if err := upstream.Stream(w, stats); err != nil {
+				record.ErrorCode = requestErrorCode(err, "stream_error")
+			} else if stats.parseError {
+				record.ErrorCode = "upstream_parse"
+			} else if stats.eventError {
+				record.ErrorCode = "upstream_event_error"
+			}
 			st.ttfb = stats.TTFB()
-			st.toks, _ = stats.Tokens()
+			if toks, ok := stats.Tokens(); ok {
+				st.toks = toks
+			}
 			rc.Close()
 			return
 		}
-		resp, err := upstream.Aggregate(rc)
+		stats := newChatStatsReaderSince(rc, st.start)
+		resp, err := upstream.Aggregate(stats)
 		rc.Close()
-		if err != nil {
+		if err != nil || stats.parseError || stats.eventError {
+			record.ErrorCode = requestErrorCode(err, "upstream_parse")
+			if stats.eventError {
+				record.ErrorCode = "upstream_event_error"
+			}
+			if err == nil {
+				err = fmt.Errorf("invalid upstream data event")
+			}
 			// 上游流解析失败：客户端还没看到任何输出，回 502 并告知原因。
 			writeOpenAIError(w, http.StatusBadGateway, "upstream_parse", err.Error())
 			st.status = http.StatusBadGateway
@@ -435,6 +479,7 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	if lastErr != nil {
 		msg += ": " + lastErr.Error()
 	}
+	record.ErrorCode = "no_healthy_account"
 	writeOpenAIError(w, http.StatusServiceUnavailable, "no_healthy_account", msg)
 	st.status = http.StatusServiceUnavailable
 }

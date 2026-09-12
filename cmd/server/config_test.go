@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -607,7 +608,13 @@ func TestPromptFileOverride(t *testing.T) {
 	want := "我的自定义人格入口"
 	os.WriteFile(pf, []byte(want), 0o600)
 	cf := filepath.Join(dir, "c.json")
-	os.WriteFile(cf, []byte(`{"prompt":{"mode":"custom","file":"`+pf+`"}}`), 0o600)
+	// 用 json.Marshal 生成配置：t.TempDir() 在 Windows 上含反斜杠（C:\Users\...），
+	// 手工字符串拼接会产出 `"file":"C:\Users\..."` 这类非法 JSON 转义（\U）。
+	raw, err := json.Marshal(map[string]any{"prompt": map[string]any{"mode": "custom", "file": pf}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(cf, raw, 0o600)
 	c, err := Load(cf)
 	if err != nil {
 		t.Fatal(err)

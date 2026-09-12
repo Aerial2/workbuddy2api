@@ -15,10 +15,15 @@ data/
 
 # Config with secrets (use config.example.json)
 config.json
+# /admin 在线保存配置时自动生成的备份（含 api_key / upstash token）
+config.json.bak
 
 # Build artifacts
 *.tmp
 __pycache__/
+# 打包产物目录（含 exe / 复制进去的 config.json 与 auths/）
+dist/
+dist-linux/
 
 # Backups (contains auth tokens)
 backups/

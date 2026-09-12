@@ -1,0 +1,9 @@
+[   58511ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://127.0.0.1:18764/:0
+[   58728ms] [ERROR] Failed to load resource: the server responded with a status of 502 (Bad Gateway) @ http://127.0.0.1:18764/admin/api/accounts/sample/requests?start=2026-09-05&end=2026-09-12&page=1&page_size=10:0
+[  110750ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://127.0.0.1:18764/:0
+[ 1646624ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://127.0.0.1:18764/:0
+[ 1803243ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:18764/admin/api/request-logs?model=glm&uid=u2&result=failed&limit=50&before=0:0
+[ 1827236ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:18764/admin/api/request-logs?model=glm&uid=u2&result=failed&limit=50&before=0:0
+[ 1832597ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://127.0.0.1:18764/:0
+[ 1832715ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:18764/admin/api/request-logs?model=&uid=&result=&limit=50&before=0:0
+[ 1850882ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:18764/admin/api/request-logs?model=&uid=&result=&limit=50&before=0:0

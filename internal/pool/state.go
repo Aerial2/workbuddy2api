@@ -71,6 +71,27 @@ func (p *Pool) ReviveDisabled(uid string) {
 	}
 }
 
+// ClearPenalty 人工清除账号的「冷却 + 熔断」运行态（Web 管理界面的人工干预入口）。
+//
+// 与 ReviveDisabled 的区别：本方法**不动** disabled 标志（session 死号仍须重登或
+// ReviveDisabled 才能回池），也不清零 credits / 成功失败统计，只把 until/coolKind/
+// reason/softStreak 与熔断器 fails/retryCount/breakerUntil 一并归零，让账号立即回到
+// 可选状态。典型场景：误判软限流 / 404 短冷却 / 5xx 熔断后人工提前放行。
+// 不存在的 uid 为空操作。
+func (p *Pool) ClearPenalty(uid string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	e, ok := p.byUID[uid]
+	if !ok {
+		return
+	}
+	p.reviveCoolingLocked(e, e.credits) // 清冷却域（credits 原样保留）
+	e.fails = 0
+	e.retryCount = 0
+	e.breakerUntil = time.Time{}
+	p.dirty.Store(true)
+}
+
 // reviveCoolingLocked 只清冷却（until/coolKind/reason/softStreak）并更新 credits，不动熔断器
 // （fails/retryCount/breakerUntil）。签到解冻走这里：签到成功只证明余额恢复与
 // billing 通道健康，不证明 chat 通道健康，熔断（连续 5xx 信号）不应被签到覆盖。
@@ -254,6 +275,7 @@ func (p *Pool) statusOf(uid string, e *entry) Status {
 		LastSuccessTime: e.lastSuccess,
 		LastErrTime:     e.lastErr,
 		Until:           e.until,
+		SoftRateModel:   e.softRateModel,
 		SoftStreak:      e.softStreak,
 		InFlight:        int(e.inFlight.Load()),
 		BreakerFails:    e.fails,

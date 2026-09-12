@@ -2,6 +2,7 @@ package upstream
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,56 @@ import (
 
 	"workbuddy2api/internal/auth"
 )
+
+func TestFetchResourceSummary(t *testing.T) {
+	cases := []struct {
+		name    string
+		body    string
+		status  int
+		want    ResourceSummary
+		wantErr bool
+	}{
+		{"decimal strings", `{"code":0,"data":{"Packages":[{"CycleTotalCapacity":"500","CycleUsedCapacity":"379.83999961","CycleRemainCapacity":"120.16000039","CapacityUnit":"credits"}]}}`, 200, ResourceSummary{500, 379.83999961, 120.16000039}, false},
+		{"multiple packages and units", `{"code":0,"data":{"Packages":[{"CycleTotalCapacity":"10","CycleUsedCapacity":"2.5","CycleRemainCapacity":"6.5","CapacityUnit":"credits"},{"CycleTotalCapacity":20,"CycleUsedCapacity":4,"CycleRemainCapacity":16,"CapacityUnit":"credits"},{"CycleTotalCapacity":"999","CapacityUnit":"tokens"}]}}`, 200, ResourceSummary{30, 6.5, 22.5}, false},
+		{"empty packages", `{"code":0,"data":{"Packages":[]}}`, 200, ResourceSummary{}, false},
+		{"missing packages", `{"code":0,"data":{}}`, 200, ResourceSummary{}, true},
+		{"null data", `{"code":0,"data":null}`, 200, ResourceSummary{}, true},
+		{"missing capacity", `{"code":0,"data":{"Packages":[{"CapacityUnit":"credits"}]}}`, 200, ResourceSummary{}, true},
+		{"invalid number", `{"code":0,"data":{"Packages":[{"CycleTotalCapacity":"NaN","CapacityUnit":"credits"}]}}`, 200, ResourceSummary{}, true},
+		{"business error", `{"code":123,"msg":"expired"}`, 200, ResourceSummary{}, true},
+		{"http error", `{"code":0}`, 401, ResourceSummary{}, true},
+		{"invalid json", `<html>error</html>`, 200, ResourceSummary{}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost || r.URL.Path != "/billing/meter/get-user-resource-summary" {
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+				}
+				if r.Header.Get("Authorization") != "Bearer test-token" || r.Header.Get("X-User-Id") != "user" || r.Header.Get("X-Tenant-Id") != "tenant" {
+					t.Error("missing account headers")
+				}
+				w.WriteHeader(tc.status)
+				_, _ = io.WriteString(w, tc.body)
+			}))
+			defer srv.Close()
+			c := New()
+			c.BillingBaseCN = srv.URL
+			got, err := c.FetchResourceSummary(context.Background(), &auth.Auth{AccessToken: "test-token", UID: "user", EnterpriseID: "tenant"})
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("error=%v, wantErr=%v", err, tc.wantErr)
+			}
+			if !tc.wantErr && *got != tc.want {
+				t.Errorf("got %+v, want %+v", got, tc.want)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			if _, err := c.FetchResourceSummary(ctx, &auth.Auth{}); err == nil {
+				t.Error("cancelled context should fail")
+			}
+		})
+	}
+}
 
 func TestClassify(t *testing.T) {
 	cases := []struct {

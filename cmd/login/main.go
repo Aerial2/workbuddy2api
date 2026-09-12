@@ -3,7 +3,7 @@
 // 两个子命令，由 login.sh 顺序驱动：
 //
 //	login url   → POST /v2/plugin/auth/state?platform=CLI 拿 state+authUrl，
-//	              state 落 /tmp/wb2api-login-state.json，stdout 打印授权 URL
+//	              state 落系统临时目录（WB2A_LOGIN_STATE 可覆盖），stdout 打印授权 URL
 //	login poll  → 读 state，GET /v2/plugin/auth/token?state= 一次，
 //	              成功再 GET /v2/plugin/login/account?state= 拿 uid/nickname，
 //	              stdout 打印完整 token+account JSON
@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -30,8 +31,17 @@ const (
 	endpointAuthState = upstreamBaseCN + "/v2/plugin/auth/state?platform=CLI"
 	endpointLoginAcct = upstreamBaseCN + "/v2/plugin/login/account?state="
 	endpointAuthToken = upstreamBaseCN + "/v2/plugin/auth/token?state="
-	stateFile         = "/tmp/wb2api-login-state.json"
+	stateFileName     = "wb2api-login-state.json"
 )
+
+// stateFile 登录状态文件路径：默认系统临时目录（Linux 下即 /tmp，与历史行为一致），
+// 可用 WB2A_LOGIN_STATE 覆盖 —— Windows 等无 /tmp 的环境靠它落地。
+func stateFile() string {
+	if p := os.Getenv("WB2A_LOGIN_STATE"); p != "" {
+		return p
+	}
+	return filepath.Join(os.TempDir(), stateFileName)
+}
 
 // commonHeaders 通用请求头
 func commonHeaders(req *http.Request) {
@@ -115,13 +125,13 @@ func main() {
 			fatal("auth state: missing state or authUrl")
 		}
 		raw, _ := json.Marshal(loginState{State: st.State})
-		if err := os.WriteFile(stateFile, raw, 0o600); err != nil {
+		if err := os.WriteFile(stateFile(), raw, 0o600); err != nil {
 			fatal("write state: %v", err)
 		}
 		fmt.Println(st.AuthURL)
 
 	case "poll":
-		raw, err := os.ReadFile(stateFile)
+		raw, err := os.ReadFile(stateFile())
 		if err != nil {
 			fatal("read state: %v (先跑 login url)", err)
 		}
@@ -171,7 +181,7 @@ func main() {
 		}
 		oraw, _ := json.Marshal(out)
 		fmt.Println(string(oraw))
-		os.Remove(stateFile)
+		os.Remove(stateFile())
 
 	default:
 		fatal("unknown subcommand %q (want url|poll)", os.Args[1])

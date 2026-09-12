@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WorkBuddy2API · 管理台</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">WB</span>
+    <span class="brand-text">WorkBuddy2API<em>管理台</em></span>
+  </div>
+  <div class="key-box">
+    <input id="apiKey" type="password" placeholder="API Key（config.json 的 api_key）" autocomplete="off">
+    <button id="toggleKey" class="btn ghost icon" title="显示 / 隐藏">👁</button>
+    <button id="saveKey" class="btn primary">连接</button>
+    <span id="conn" class="conn off" title="未连接">●</span>
+  </div>
+</header>
+
+<div class="authbar" id="authBar" hidden>
+  <b>未通过鉴权</b>
+  <span>
+    请在右上角填入 <code>config.json</code> 里 <code>api_key</code> 的值，再点「连接」。
+    忘记 key 可执行 <code>python -c "import json;print(json.load(open('config.json'))['api_key'])"</code>
+    或直接查看配置文件。
+  </span>
+  <button class="btn mini" id="authBarFocus">去填写</button>
+</div>
+
+<nav class="tabs" id="tabs">
+  <button class="tab active" data-tab="overview">概览</button>
+  <button class="tab" data-tab="accounts">账号</button>
+  <button class="tab" data-tab="requests">请求记录</button>
+  <button class="tab" data-tab="logs">实时日志</button>
+  <button class="tab" data-tab="usage">用量统计</button>
+  <button class="tab" data-tab="health">健康诊断</button>
+  <button class="tab" data-tab="performance">性能统计</button>
+  <button class="tab" data-tab="models">模型</button>
+  <button class="tab" data-tab="chat">聊天测试</button>
+  <button class="tab" data-tab="config">配置</button>
+</nav>
+
+<main>
+
+  <!-- 概览 -->
+  <section class="panel active" id="panel-overview">
+    <div class="panel-head">
+      <h2>服务概览</h2>
+      <div class="actions">
+        <label class="switch"><input type="checkbox" id="autoRefresh"><span>自动刷新 5s</span></label>
+        <button class="btn" id="refreshOverview">刷新</button>
+      </div>
+    </div>
+    <div class="cards" id="overviewCards"></div>
+    <div class="box">
+      <h3>低余额提醒</h3>
+      <div class="row">
+        <label class="switch inline"><input type="checkbox" id="balanceEnabled" checked><span>启用站内提醒</span></label>
+        <label>剩余积分低于<input type="number" id="balanceThreshold" min="0" max="1000000000" step="0.01" value="50"></label>
+        <button class="btn" id="saveBalanceSettings">保存阈值</button>
+        <button class="btn" id="refreshBalances">刷新余额</button>
+      </div>
+      <p class="hint">设置仅保存在当前浏览器，无需重启；仅做提醒，不修改账号池调度。页面打开时每分钟更新官网余额，查询失败或过期余额按未知处理。</p>
+      <div class="cards" id="balanceSummary"></div>
+      <p id="balanceNotice" class="dashboard-notice" role="status" aria-live="polite"></p>
+    </div>
+    <div class="grid-2">
+      <div class="box">
+        <h3>运行中生效值</h3>
+        <table class="kv" id="effectiveTable"><tbody></tbody></table>
+      </div>
+      <div class="box">
+        <h3>快速验证</h3>
+        <p class="hint">等价于 README 里的 curl 命令，可直接复制到终端使用。</p>
+        <div class="snippet" id="snippets"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 账号 -->
+  <section class="panel" id="panel-accounts">
+    <div class="panel-head">
+      <h2>账号状态</h2>
+      <div class="actions">
+        <span class="hint" id="accountsHint"></span>
+        <button class="btn primary" id="addAccount">+ 添加账号</button>
+        <button class="btn" id="refreshAccounts">刷新</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="data" id="accountsTable">
+        <thead>
+          <tr>
+            <th>UID</th><th>昵称</th><th>总积分</th><th>已用积分</th><th>剩余积分</th><th>状态</th><th>冷却剩余</th>
+            <th>软冷却连击</th><th>熔断</th><th>在途</th><th>成功 / 错误</th>
+            <th>最近成功</th><th>操作</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="hint">
+      积分来自官网额度汇总接口，合计各 credits 套餐，最多显示两位小数，悬停可查看完整数值和查询时间；
+      自动刷新时积分每分钟更新，点击「刷新」立即重新查询。<br>
+      说明：<b>禁用</b>（disabled）多为 session 失效，需重新登录或点「复活」；
+      <b>冷却</b>到期自动恢复，也可点「清处罚」立即放行（同时清熔断）。
+    </p>
+  </section>
+
+  <!-- 请求记录 -->
+  <section class="panel" id="panel-requests">
+    <div class="panel-head">
+      <h2>请求记录</h2>
+      <button class="btn" id="refreshRequests">刷新记录</button>
+    </div>
+    <div class="row request-filters">
+      <label>账号 <select id="requestAccount"><option value="">加载账号…</option></select></label>
+      <label>开始日期 <input type="date" id="requestStart"></label>
+      <label>结束日期 <input type="date" id="requestEnd"></label>
+      <label>每页 <select id="requestPageSize"><option value="10">10 条</option><option value="20">20 条</option><option value="50">50 条</option></select></label>
+    </div>
+    <p class="hint">来源：官网请求账单；时间为北京时间（UTC+8），日期间隔最多 31 天。积分为实际账单消耗，可能延迟更新；点击请求内容可展开官网返回的文本，使用端为空时显示「-」。</p>
+    <p class="hint" id="requestsHint" role="status" aria-live="polite"></p>
+    <div class="table-wrap">
+      <table class="data" id="requestsTable">
+        <thead><tr><th>时间</th><th>请求</th><th>积分消耗</th><th>模型</th><th>使用端</th></tr></thead>
+        <tbody><tr><td colspan="5">请选择账号查询请求记录。</td></tr></tbody>
+      </table>
+    </div>
+    <div class="actions request-pagination">
+      <button class="btn" id="requestsPrev" disabled>上一页</button>
+      <span class="hint" id="requestsPage">第 1 页</span>
+      <button class="btn" id="requestsNext" disabled>下一页</button>
+    </div>
+  </section>
+
+  <!-- 实时日志 -->
+  <section class="panel" id="panel-logs">
+    <div class="panel-head">
+      <h2>网关实时请求日志</h2>
+      <div class="actions">
+        <label class="switch"><input type="checkbox" id="logsAuto" checked><span>自动刷新 5s</span></label>
+        <button class="btn" id="refreshLogs">刷新到最新</button>
+      </div>
+    </div>
+    <div class="row log-filters">
+      <label>账号（包含重试账号）<select id="logAccount"><option value="">全部账号</option></select></label>
+      <label>模型（包含匹配）<input type="text" id="logModel" maxlength="128" placeholder="输入模型名称"></label>
+      <label>结果<select id="logResult"><option value="">全部结果</option><option value="success">成功</option><option value="failed">失败</option></select></label>
+      <label>每页<select id="logLimit"><option value="20">20 条</option><option value="50" selected>50 条</option><option value="100">100 条</option></select></label>
+    </div>
+    <p class="hint">仅记录经过本服务的 POST /v1/chat/completions 已结束请求，时间按浏览器本地时区显示。内存保留最近 1000 条，重启清空，不保存对话正文、密钥或原始错误内容。积分消耗请看「请求记录」官网账单。</p>
+    <p class="hint">HTTP 200 的流式请求也可能失败，请以「结果」为准。重试次数为实际账号尝试次数减一；点击详情可查看账号尝试顺序及最近一次失败原因。翻看历史页或展开详情时暂停自动刷新。</p>
+    <p class="hint" id="logsHint" role="status" aria-live="polite"></p>
+    <div class="table-wrap">
+      <table class="data" id="logsTable">
+        <thead><tr><th>开始时间 / 本地序号</th><th>模型</th><th>最后尝试账号</th><th>模式</th><th>耗时</th><th>结果 / HTTP</th><th>重试</th><th>详情</th></tr></thead>
+        <tbody><tr><td colspan="8" class="hint">进入此页加载实时日志。</td></tr></tbody>
+      </table>
+    </div>
+    <div class="actions request-pagination">
+      <button class="btn" id="logsPrev" disabled>上一页</button>
+      <span class="hint" id="logsPage">第 1 页</span>
+      <button class="btn" id="logsNext" disabled>下一页</button>
+    </div>
+  </section>
+
+  <!-- 官网用量统计 -->
+  <section class="panel" id="panel-usage">
+    <div class="panel-head"><h2>官网用量统计</h2><button class="btn" id="refreshUsageStats">重新查询完整账单</button></div>
+    <div class="row dashboard-filters">
+      <label>时间范围<select id="usagePeriod"><option value="today">今日</option><option value="7d" selected>近 7 天（含今日）</option><option value="month">本月</option></select></label>
+      <label>账号<select id="usageAccount"><option value="">全部账号</option></select></label>
+    </div>
+    <p class="hint">积分来源为官网账单，按北京时间统计至查询发起时刻。自动读取全部分页，每账号最多 10000 条、单次最多 90 秒；缓存汇总一分钟，不缓存对话正文。官网账单可能延迟更新。</p>
+    <p class="dashboard-notice" id="usageStatsHint" role="status" aria-live="polite"></p>
+    <div class="cards" id="usageStatsCards"></div>
+    <div class="grid-2">
+      <div class="box"><h3>每日积分消耗趋势</h3><div id="usageDaily"></div></div>
+      <div class="box"><h3>模型积分消耗排行</h3><div id="usageRanking"></div></div>
+    </div>
+    <h3>按账号汇总 / 数据完整性</h3>
+    <div class="table-wrap"><table class="data" id="usageAccountsTable"><thead><tr><th>账号</th><th>已读 / 官网条数</th><th>积分消耗</th><th>单次均值</th><th>完整性</th></tr></thead><tbody></tbody></table></div>
+    <h3>按模型汇总</h3>
+    <div class="table-wrap"><table class="data" id="usageModelsTable"><thead><tr><th>模型</th><th>请求次数</th><th>已知积分条数</th><th>积分消耗</th><th>单次均值</th></tr></thead><tbody></tbody></table></div>
+    <p class="hint">统计不完整时，所有数值仅代表已读取的记录。单次均值 = 已知积分总消耗 / 有效积分记录数；缺失积分不会按零计入均值。</p>
+  </section>
+
+  <section class="panel" id="panel-health">
+    <div class="panel-head"><h2>账号健康诊断</h2><div class="actions"><button class="btn" id="refreshDiagnostics">刷新诊断与余额</button><button class="btn" id="healthChatTest">手动聊天测试</button></div></div>
+    <p class="hint">自动诊断只读取账号池、内存请求日志和官网额度接口，不发送聊天请求、不自动复活账号。额度接口成功不代表聊天链路正常；手动聊天测试会消耗积分。</p>
+    <p class="dashboard-notice" id="diagnosticsHint" role="status"></p>
+    <div class="table-wrap"><table class="data" id="diagnosticsTable"><thead><tr><th>账号 / 官网余额</th><th>诊断与建议</th><th>预计恢复</th><th>最近成功</th><th>近期尝试成功率</th><th>参与重试的请求</th><th>最近失败</th></tr></thead><tbody></tbody></table></div>
+    <p class="hint">近期指标仅覆盖本次启动后保留的日志。账号成功率按实际账号尝试计算（包括换号前的失败），与请求最终成功率不同；重试列按该账号参与过的重试请求去重计数。恢复时间为账号池冷却/熔断预计结束时间，不保证届时上游已恢复。</p>
+  </section>
+
+  <section class="panel" id="panel-performance">
+    <div class="panel-head"><h2>网关性能统计</h2><div class="actions"><label class="switch"><input type="checkbox" id="performanceAuto" checked><span>自动刷新 5s</span></label><button class="btn" id="refreshPerformance">刷新</button></div></div>
+    <p class="dashboard-notice" id="performanceHint" role="status"></p>
+    <p class="hint">仅覆盖本次启动后保留的最近 1000 条已结束请求，重启清空，与官网积分账单无关。耗时包括账号重试和响应传输；P95 表示 95% 的请求耗时不超过该值。首帧均值仅统计流式请求中有记录的首个数据帧。</p>
+    <div class="cards" id="performanceCards"></div>
+    <h3>各模型速度与成功率</h3>
+    <div class="table-wrap"><table class="data" id="performanceModels"><thead><tr><th>模型</th><th>请求数</th><th>成功率</th><th>平均耗时</th><th>P95 耗时</th><th>首帧均值 / 样本</th><th>重试比例</th><th>超时 / 限流次数</th></tr></thead><tbody></tbody></table></div>
+    <h3>耗时最高的 10 条请求</h3>
+    <div class="table-wrap"><table class="data" id="slowRequests"><thead><tr><th>本地序号 / 时间</th><th>模型</th><th>最后账号</th><th>耗时</th><th>结果</th><th>重试次数</th></tr></thead><tbody></tbody></table></div>
+    <p class="hint">超时、限流按账号尝试次数计算，因此同一个请求可以计数多次；重试比例按发生过重试的请求数 / 总请求数计算。空样本显示「—」，不代表 0% 成功。</p>
+  </section>
+
+  <!-- 模型 -->
+  <section class="panel" id="panel-models">
+    <div class="panel-head">
+      <h2>模型列表</h2>
+      <div class="actions">
+        <span class="hint">来源：GET /v1/models（动态拉取，失败回落静态表）</span>
+        <button class="btn" id="refreshModels">刷新</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="data" id="modelsTable">
+        <thead><tr><th>模型 ID</th><th>归属</th><th>上下文长度</th><th>最大输出</th><th>操作</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 聊天 -->
+  <section class="panel" id="panel-chat">
+    <div class="panel-head">
+      <h2>聊天测试</h2>
+      <div class="actions">
+        <span class="hint">走网关真实链路（含账号轮转 / 提示词改写 / 流式）</span>
+      </div>
+    </div>
+    <div class="chat-form">
+      <div class="row">
+        <label>模型
+          <select id="chatModel"></select>
+        </label>
+        <label class="grow">系统提示词（可选，custom 模式下会被网关自有提示词替换）
+          <input id="chatSystem" type="text" placeholder="留空即不发送 system 消息">
+        </label>
+        <label class="switch inline"><input type="checkbox" id="chatStream" checked><span>流式</span></label>
+      </div>
+      <textarea id="chatInput" rows="5" placeholder="输入内容，Ctrl + Enter 发送"></textarea>
+      <div class="row">
+        <button class="btn primary" id="chatSend">发送</button>
+        <button class="btn" id="chatStop" disabled>停止</button>
+        <button class="btn ghost" id="chatClear">清空输出</button>
+        <span class="stat" id="chatStat"></span>
+      </div>
+    </div>
+    <div class="box">
+      <h3>输出</h3>
+      <pre class="output" id="chatOutput"></pre>
+      <div id="chatReasoningWrap" hidden>
+        <h3>思考内容（reasoning_content）</h3>
+        <pre class="output reasoning" id="chatReasoning"></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- 配置 -->
+  <section class="panel" id="panel-config">
+    <div class="panel-head">
+      <h2>配置管理</h2>
+      <div class="actions">
+        <span class="hint" id="configPath"></span>
+        <button class="btn" id="configReload">重新加载</button>
+        <button class="btn primary" id="configSave">保存</button>
+        <button class="btn warn" id="configSaveRestart" title="保存后重启进程使配置生效">保存并重启</button>
+      </div>
+    </div>
+    <p class="hint">
+      多数配置项需<b>重启进程</b>才生效（账号池 / 调度器 / 上游超时在启动时构建）。
+      保存前会走与启动完全一致的校验，非法配置不会落盘；原文件会备份为 <code>config.json.bak</code>。
+    </p>
+    <div class="sub-tabs">
+      <button class="sub-tab active" data-sub="form">结构化</button>
+      <button class="sub-tab" data-sub="json">JSON 原文</button>
+    </div>
+    <div class="sub-panel active" id="sub-form">
+      <div id="configForm"></div>
+    </div>
+    <div class="sub-panel" id="sub-json">
+      <textarea id="configJson" rows="24" spellcheck="false"></textarea>
+      <p class="hint">直接编辑完整配置对象；切回「结构化」或点击保存时以这里的内容为准。</p>
+    </div>
+  </section>
+
+</main>
+
+<!-- 添加账号弹层 -->
+<div class="modal-mask" id="loginModal" hidden>
+  <div class="modal">
+    <h3>添加账号（OAuth 设备授权）</h3>
+    <ol class="steps">
+      <li>点击下面的授权链接，在浏览器完成 CodeBuddy 账号登录</li>
+      <li>登录成功后本页面会自动检测并把凭证写入 <code>auths/</code></li>
+    </ol>
+    <p class="authurl"><a id="loginUrl" href="#" target="_blank" rel="noopener"></a></p>
+    <div class="row">
+      <button class="btn" id="loginCopy">复制链接</button>
+      <button class="btn" id="loginOpen">重新打开</button>
+      <span class="stat" id="loginStat">等待登录…</span>
+    </div>
+    <div class="row end">
+      <button class="btn ghost" id="loginClose">关闭</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+<script src="app.js"></script>
+</body>
+</html>

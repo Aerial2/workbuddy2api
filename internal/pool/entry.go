@@ -31,6 +31,7 @@ type Status struct {
 	Nickname        string    `json:"nickname,omitempty"`
 	Credits         int64     `json:"credits"`
 	Cooling         bool      `json:"cooling"`
+	SoftRateModel   string    `json:"soft_rate_model,omitempty"`
 	CoolKind        string    `json:"cool_kind,omitempty"`
 	CoolRemaining   int64     `json:"cool_remaining_sec,omitempty"`
 	Until           time.Time `json:"until,omitempty"`

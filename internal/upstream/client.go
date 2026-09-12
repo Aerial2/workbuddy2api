@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"regexp"
 	"strings"
@@ -329,9 +330,81 @@ const (
 	dailyCheckinPath = "/v2/billing/meter/daily-checkin"
 )
 
+// ResourceSummary 是所有 credits 套餐的周期额度，仅供展示，不改变账号池调度余额。
+type ResourceSummary struct {
+	Total  float64 `json:"total"`
+	Used   float64 `json:"used"`
+	Remain float64 `json:"remain"`
+}
+
+// FetchResourceSummary 读取官网积分汇总，直接采用三个 Cycle 字段，不反推已用量。
+func (c *Client) FetchResourceSummary(ctx context.Context, a *auth.Auth) (*ResourceSummary, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.billingBase(a)+"/billing/meter/get-user-resource-summary", strings.NewReader(`{}`))
+	if err != nil {
+		return nil, err
+	}
+	a.Lock()
+	c.BillingHeaders(req, a)
+	a.Unlock()
+	data, err := c.doJSON(req)
+	if err != nil {
+		return nil, err
+	}
+	var result struct {
+		Packages *[]struct {
+			Total  json.Number `json:"CycleTotalCapacity"`
+			Used   json.Number `json:"CycleUsedCapacity"`
+			Remain json.Number `json:"CycleRemainCapacity"`
+			Unit   string      `json:"CapacityUnit"`
+		} `json:"Packages"`
+	}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("解析积分汇总失败: %w", err)
+	}
+	if result.Packages == nil {
+		return nil, fmt.Errorf("积分汇总缺少 Packages")
+	}
+	summary := &ResourceSummary{}
+	for _, pack := range *result.Packages {
+		if pack.Unit != "credits" {
+			continue
+		}
+		for _, field := range []struct {
+			name string
+			raw  json.Number
+			dst  *float64
+		}{
+			{"CycleTotalCapacity", pack.Total, &summary.Total},
+			{"CycleUsedCapacity", pack.Used, &summary.Used},
+			{"CycleRemainCapacity", pack.Remain, &summary.Remain},
+		} {
+			value, err := field.raw.Float64()
+			if err != nil || math.IsNaN(value) || math.IsInf(value, 0) {
+				return nil, fmt.Errorf("积分汇总 %s 不是有效数值", field.name)
+			}
+			*field.dst += value
+			if math.IsInf(*field.dst, 0) {
+				return nil, fmt.Errorf("积分汇总 %s 超出数值范围", field.name)
+			}
+		}
+	}
+	return summary, nil
+}
+
 // doJSON 发请求并解信封；HTTP 非 2xx 或业务 code != 0 时返回带 body 片段的 *Error。
 func (c *Client) doJSON(req *http.Request) (json.RawMessage, error) {
-	resp, err := c.HTTP.Do(req)
+	return c.doJSONWith(c.HTTP, req)
+}
+
+// doJSONWith 与 doJSON 同语义，但显式指定 http.Client。
+// 目前只有 OAuth 设备授权流程用到（每次流程一个独立 cookie jar 的临时 client，
+// 避免多账号登录串会话；见 oauth.go）。
+func (c *Client) doJSONWith(client *http.Client, req *http.Request) (json.RawMessage, error) {
+	if client == nil {
+		client = c.HTTP
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}

@@ -54,13 +54,17 @@ func (s *chatStat) done() {
 // 并记录首个 data 帧的 TTFB；原始字节原样返回给下游透传。
 // 注意：不做 rune 估算，token 数一律采信上游 usage。
 type chatStatsReader struct {
-	br       *bufio.Reader
-	start    time.Time
-	ttfb     time.Duration
-	seen     bool // 已见过首个 data 帧（TTFB 只记一次）
-	hasUsage bool // 末帧是否带 usage
-	tokens   int
-	pend     []byte // 已读未返回的行缓存
+	br         *bufio.Reader
+	start      time.Time
+	ttfb       time.Duration
+	seen       bool // 已见过首个 data 帧（TTFB 只记一次）
+	hasUsage   bool // 末帧是否带 usage
+	tokens     int
+	pend       []byte // 已读未返回的行缓存
+	pendingErr error  // ReadString may return bytes and a non-EOF error together.
+	parseError bool
+	eventError bool
+	ended      bool
 }
 
 // newChatStatsReaderSince 以 since 为 TTFB 计时起点（通常是请求进入 handler 的时刻）。
@@ -80,13 +84,25 @@ func (s *chatStatsReader) parseSSELine(line string) {
 	if !strings.HasPrefix(line, "data: ") {
 		return
 	}
+	if s.ended {
+		return
+	}
 	payload := strings.TrimPrefix(line, "data: ")
 	if payload == "[DONE]" {
+		s.ended = true
 		return
 	}
 	if !s.seen {
 		s.seen = true
 		s.ttfb = time.Since(s.start)
+	}
+	var event map[string]json.RawMessage
+	if json.Unmarshal([]byte(payload), &event) != nil || event == nil {
+		s.parseError = true
+		return
+	}
+	if raw, ok := event["error"]; ok && string(raw) != "null" {
+		s.eventError = true
 	}
 	var chunk struct {
 		Usage *struct {
@@ -107,7 +123,11 @@ func (s *chatStatsReader) Read(p []byte) (int, error) {
 		s.pend = s.pend[n:]
 		return n, nil
 	}
+	if s.pendingErr != nil {
+		return 0, s.pendingErr
+	}
 	line, err := s.br.ReadString('\n')
+	s.pendingErr = err
 	if line != "" {
 		s.parseSSELine(line)
 		s.pend = []byte(line)

@@ -38,7 +38,9 @@ func withChatLog(t *testing.T) {
 }
 
 func TestChatStatsReaderTokensFromUsage(t *testing.T) {
-	r := newChatStatsReaderSince(strings.NewReader(sseOK), time.Now())
+	// 计时起点刻意回拨 1ms：Windows 上 time.Now()/time.Since 的实际精度约 0.5~15ms，
+	// 起点取"当下"再立刻读完字节流，TTFB 会稳定算出 0，断言 >0 必然误报（既有环境性 flake）。
+	r := newChatStatsReaderSince(strings.NewReader(sseOK), time.Now().Add(-time.Millisecond))
 	if _, err := io.Copy(io.Discard, r); err != nil {
 		t.Fatalf("copy: %v", err)
 	}

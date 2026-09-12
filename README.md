@@ -43,6 +43,7 @@ WorkBuddy2API 是一个自托管的 **OpenAI 兼容反向代理网关**，将腾
 | 💬 **系统提示词体系** | 网关自有提示词替换客户端 system（默认 `custom`），从源头消灭 system 来源的内容误报；`passthrough` 遇拦截自动降级重试 |
 | 🗑️ **指纹脱敏** | 出站请求体黑名单指纹字段清洗（可关闭），与提示词体系两层叠加 |
 | 📊 **可观测** | 每请求一行表格日志（TTFB / token 速率 / uid）；`/healthz` 带 `service` 身份标识可接负载均衡 / 宿主探活 |
+| 🖥️ **Web 管理台** | 内置 `/admin/` 单页管理界面：概览 / 账号干预 / 模型 / 聊天测试 / 配置在线编辑 + 一键重启，零额外部署 |
 | 💾 **状态持久化** | 池状态本地原子落盘 + Upstash Redis 异步镜像（可选），重启择新恢复 |
 
 ## 架构总览
@@ -109,6 +110,17 @@ go test ./...      # 完整测试套件
 go run ./cmd/server -config config.json
 ```
 
+Windows 本机自用可直接用附带的脚本（按需编译 → 后台启动 → 打印管理台入口与 API Key）：
+
+```powershell
+.\run.ps1              # 源码有变更才重新编译；已在跑则先停旧进程再启动
+.\run.ps1 -Rebuild     # 强制重新编译
+.\run.ps1 -Foreground  # 前台运行，日志直接打在终端（Ctrl+C 退出）
+.\stop.ps1             # 停止
+```
+
+> ⚠️ 用 `go run` 启动时 `os.Executable()` 指向临时目录里的临时二进制，管理台「保存并重启」会失效；需要该功能请用编译后的二进制（或 `.\run.ps1`）。
+
 构建二进制：
 
 ```bash
@@ -139,6 +151,44 @@ curl -s http://localhost:7863/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"hi"}],"stream":false}'
 ```
+
+## Web 管理界面
+
+网关内置单页管理台（`internal/admin`，前端资源 `go:embed` 进二进制），零额外部署：
+
+```bash
+# 浏览器打开；页面顶部填入 config.json 的 api_key 后点「连接」
+http://localhost:7863/admin/
+```
+
+| 页面 | 能力 |
+|---|---|
+| 概览 | `/healthz` + `/status` 汇总卡片（健康 / 冷却 / 禁用 / 满载 / 粘性 / Redis）、运行中生效值、等价 curl 片段、5s 自动刷新 |
+| 账号 | 每账号状态（积分 / 冷却剩余 / 软冷却连击 / 熔断 / 在途 / 成功·错误 / `disabled_reason`）；操作：**复活**（`Pool.ReviveDisabled`）、**清处罚**（清冷却 + 熔断，`Pool.ClearPenalty`）；**+ 添加账号**走 OAuth 设备授权，成功后落盘 `auths/` 并热加载进池（无需重启） |
+| 模型 | `/v1/models` 列表（id / 归属 / 上下文长度 / 最大输出），一键复制模型 ID，同时回填聊天页下拉 |
+| 聊天测试 | 选模型 + 流式开关，实时展示 `content` / `reasoning_content` / TTFB / tok/s；可中途停止（AbortController） |
+| 配置 | 结构化表单 + JSON 原文双模式；保存前走与启动**完全一致**的 `Load` 校验（时长 / 小时范围 / 提示词文件），非法配置拒绝落盘；旧文件备份为 `config.json.bak`；支持「保存并重启」 |
+
+鉴权与安全：
+
+- 页面本身不鉴权（浏览器导航请求带不了 `Authorization`），但 `/admin/api/*` **全部**校验同一把 `api_key`；未持 key 拿不到任何数据
+- `GET /admin/api/config` 把 `api_key` / `upstash.token` 打码为 `***`；PUT 时原样回传该占位符即表示「保持磁盘上的原值」
+- 在线保存只写 `config.json`，备份 `config.json.bak`（含密钥）已在 `.gitignore` 中排除
+
+### 管理 API
+
+| 端点 | 方法 | 说明 |
+|---|---|---|
+| `/admin/` | GET | 管理台页面（无鉴权，仅静态资源） |
+| `/admin/api/config` | GET | 当前配置文件（密钥打码）+ 运行中生效值 |
+| `/admin/api/config` | PUT | 校验并原子写回配置（自动备份 `config.json.bak`） |
+| `/admin/api/restart` | POST | 重新拉起进程 |
+| `/admin/api/accounts/{uid}/revive` | POST | 复活 disabled 账号 |
+| `/admin/api/accounts/{uid}/reset` | POST | 清除冷却与熔断运行态（不动 disabled 标志与统计） |
+| `/admin/api/login/start` | POST | 发起 OAuth 设备授权，返回 `state` + `auth_url` |
+| `/admin/api/login/poll?state=` | GET | 轮询授权结果；完成即落盘 `auths/workbuddy-<uid>.json` 并热加载进池 |
+
+> 重启语义：`POST /admin/api/restart` 用当前可执行文件 + 原参数重新拉起自身（继承 stdout / stderr 与工作目录），新进程靠启动时的 `listenWithRetry` 等旧进程释放端口后接管，旧进程随后优雅停机。**请用编译后的二进制运行**（`go run` 的 `os.Executable()` 指向临时文件，重启会失败）。
 
 ## 配置说明
 
@@ -317,6 +367,7 @@ curl -s http://localhost:7863/v1/chat/completions \
 | `GET /v1/models` | Bearer（`api_key` 非空时） | 模型列表（动态拉取，缓存 1h；失败回落静态表 + 5min 负缓存） |
 | `GET /status` | Bearer（`api_key` 非空时） | 账号状态汇总 + 每账号详情（积分 / 冷却 / 熔断 / 在途 / 粘性；disabled 账号透出 `disabled_reason`） |
 | `GET /healthz` | 无 | 健康检查：有 healthy 且未占满账号返回 200，否则 503；响应带身份标识（见下） |
+| `GET /admin/` | 无（页面） | Web 管理台单页界面；页面内所有 `/admin/api/*` 请求走 `api_key` 校验（见 [Web 管理界面](#web-管理界面)） |
 
 > 鉴权规则：仅当 `api_key` 非空才校验 `Authorization: Bearer <api_key>`；**`api_key` 为空时上述端点直接放行**；`/healthz` 恒无鉴权。
 

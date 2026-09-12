@@ -7,15 +7,15 @@ import (
 	"time"
 )
 
-// TestMonitorBodyIdleCutoff 静默超过 idle（配小值）→ Read 返回错误（context canceled）。
+// TestMonitorBodyIdleCutoff 静默超过 idle → 明确返回超时，而非客户端取消。
 func TestMonitorBodyIdleCutoff(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	// 模拟真实 resp.Body：阻塞直到请求 context 被 cancel 才返回 error。
 	body := monitorBody(&ctxBoundReader{ctx: ctx}, 50*time.Millisecond, cancel)
 	defer body.Close()
-	if _, err := body.Read(make([]byte, 16)); err == nil {
-		t.Fatal("expect read error after idle cutoff")
+	if _, err := body.Read(make([]byte, 16)); err != context.DeadlineExceeded {
+		t.Fatalf("expect timeout after idle cutoff, got %v", err)
 	}
 }
 
