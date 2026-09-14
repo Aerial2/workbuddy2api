@@ -24,12 +24,12 @@ if (-not (Test-Path $cfg)) {
     throw "找不到 $cfg（首次使用请先 cp config.example.json config.json 并设置 api_key）"
 }
 
-# 1. 编译：缺 exe / 强制 / 有 .go 比 exe 新
+# 1. 编译：缺 exe / 强制 / Go 源码或内嵌静态资源比 exe 新
 $needBuild = $Rebuild -or (-not (Test-Path $exe))
 if (-not $needBuild) {
     $exeTime = (Get-Item $exe).LastWriteTimeUtc
-    $newer = Get-ChildItem -Path cmd, internal -Recurse -Filter *.go |
-        Where-Object { $_.LastWriteTimeUtc -gt $exeTime } | Select-Object -First 1
+    $newer = Get-ChildItem -Path cmd, internal -Recurse -File |
+        Where-Object { $_.Extension -in '.go', '.html', '.css', '.js' -and $_.LastWriteTimeUtc -gt $exeTime } | Select-Object -First 1
     if ($newer) {
         Write-Host "[*] 源码已变更（$($newer.Name)），重新编译…" -ForegroundColor Cyan
         $needBuild = $true

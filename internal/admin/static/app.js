@@ -102,6 +102,7 @@ async function api(path, opts = {}) {
 function setConn(ok, title) {
   const el = $('#conn');
   el.className = 'conn ' + (ok ? 'ok' : 'bad');
+  el.textContent = ok ? '已连接' : '连接失败';
   el.title = title || (ok ? '已连接' : '连接失败');
 }
 
@@ -140,12 +141,67 @@ async function connect(silent) {
   }
 }
 
-/* ── 标签页 ──────────────────────────────────────────── */
+/* ── 左侧导航 ────────────────────────────────────────── */
+
+const mobileMenu = window.matchMedia('(max-width: 900px)');
+
+function setMenuOpen(open, restoreFocus = true) {
+  open = open && mobileMenu.matches;
+  document.body.classList.toggle('menu-open', open);
+  $('#toggleMenu').setAttribute('aria-expanded', String(open));
+  $('#menuBackdrop').hidden = !open;
+  $('#workspace').inert = open;
+  if (open) {
+    $('#closeMenu').focus();
+  } else if (restoreFocus && mobileMenu.matches) {
+    $('#toggleMenu').focus();
+  }
+}
+
+$('#toggleMenu').addEventListener('click', () => setMenuOpen(!document.body.classList.contains('menu-open')));
+$('#closeMenu').addEventListener('click', () => setMenuOpen(false));
+$('#menuBackdrop').addEventListener('click', () => setMenuOpen(false));
+mobileMenu.addEventListener('change', () => {
+  const sidebarHadFocus = $('#sidebar').contains(document.activeElement);
+  setMenuOpen(false, false);
+  if (sidebarHadFocus) {
+    $(mobileMenu.matches ? '#toggleMenu' : '#tabs .tab.active').focus();
+  }
+});
+document.addEventListener('keydown', (e) => {
+  if (!document.body.classList.contains('menu-open')) return;
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    setMenuOpen(false);
+  }
+  if (e.key === 'Tab') {
+    const controls = $$('#sidebar button');
+    const first = controls[0];
+    const last = controls[controls.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+});
 
 $$('#tabs .tab').forEach((btn) => {
+  btn.setAttribute('aria-controls', 'panel-' + btn.dataset.tab);
   btn.addEventListener('click', () => {
-    $$('#tabs .tab').forEach((b) => b.classList.toggle('active', b === btn));
+    $$('#tabs .tab').forEach((b) => {
+      b.classList.toggle('active', b === btn);
+      if (b === btn) b.setAttribute('aria-current', 'page');
+      else b.removeAttribute('aria-current');
+    });
     $$('.panel').forEach((p) => p.classList.toggle('active', p.id === 'panel-' + btn.dataset.tab));
+    $('#currentPage').textContent = btn.textContent.trim();
+    const wasMenuOpen = document.body.classList.contains('menu-open');
+    setMenuOpen(false, false);
+    if (wasMenuOpen) $('#mainContent').focus({ preventScroll: true });
+    window.scrollTo({ top: 0, behavior: 'instant' });
     const t = btn.dataset.tab;
     if (t === 'overview') loadOverview();
     if (t === 'accounts') loadAccounts();
@@ -1244,6 +1300,8 @@ $('#apiKey').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#sav
 $('#toggleKey').addEventListener('click', () => {
   const el = $('#apiKey');
   el.type = el.type === 'password' ? 'text' : 'password';
+  $('#toggleKey').setAttribute('aria-pressed', String(el.type === 'text'));
+  $('#toggleKey').setAttribute('aria-label', el.type === 'text' ? '隐藏 API Key' : '显示 API Key');
 });
 
 $('#authBarFocus').addEventListener('click', () => {

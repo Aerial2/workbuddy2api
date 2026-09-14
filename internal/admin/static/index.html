@@ -8,16 +8,44 @@
 </head>
 <body>
 
-<header class="topbar">
+<a class="skip-link" href="#mainContent">跳转到主内容</a>
+<aside class="sidebar" id="sidebar" aria-label="管理台侧栏">
   <div class="brand">
     <span class="logo">WB</span>
-    <span class="brand-text">WorkBuddy2API<em>管理台</em></span>
+    <span class="brand-text">WorkBuddy2API<em>网关管理控制台</em></span>
+    <button id="closeMenu" class="btn ghost icon sidebar-close" aria-label="关闭导航菜单">×</button>
+  </div>
+  <nav class="tabs" id="tabs" aria-label="主导航">
+    <div class="nav-label">工作空间</div>
+    <button class="tab active" data-tab="overview" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span>概览</span></button>
+    <button class="tab" data-tab="accounts"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 5a3 3 0 0 1 0 6m3 10v-3a6 6 0 0 0-2-4"/></svg><span>账号</span></button>
+    <button class="tab" data-tab="requests"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H5v18h14V8zM14 3v5h5M8 12h8m-8 4h5"/></svg><span>请求记录</span></button>
+    <div class="nav-label">监控与分析</div>
+    <button class="tab" data-tab="logs"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3m6 0h4"/></svg><span>实时日志</span></button>
+    <button class="tab" data-tab="usage"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3v17h17M8 15V9m5 6V5m5 10v-4"/></svg><span>用量统计</span></button>
+    <button class="tab" data-tab="health"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6zM7 12h3l2-4 2 8 2-4h2"/></svg><span>健康诊断</span></button>
+    <button class="tab" data-tab="performance"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19a10 10 0 1 1 16 0M12 13l5-6M5 13h1m12 0h1M12 4v1"/><circle cx="12" cy="14" r="2"/></svg><span>性能统计</span></button>
+    <div class="nav-label">开发与设置</div>
+    <button class="tab" data-tab="models"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5zM3 12l9 5 9-5M3 16l9 5 9-5"/></svg><span>模型</span></button>
+    <button class="tab" data-tab="chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11a8 8 0 0 1-8 8H7l-4 3V11a9 9 0 0 1 18 0Z M8 10h8m-8 4h5"/></svg><span>聊天测试</span></button>
+    <button class="tab" data-tab="config"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/></svg><span>配置</span></button>
+  </nav>
+  <div class="sidebar-footer"><span class="footer-mark">W</span><div>WorkBuddy2API<small>统一接入 · 轻松管理</small></div><span class="footer-badge">API</span></div>
+</aside>
+<button class="sidebar-backdrop" id="menuBackdrop" aria-label="关闭导航菜单" tabindex="-1" hidden></button>
+
+<div class="workspace" id="workspace">
+<header class="topbar">
+  <div class="topbar-location">
+    <button id="toggleMenu" class="btn ghost icon menu-toggle" aria-label="打开导航菜单" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+    <span class="breadcrumb-root">管理控制台</span><span class="breadcrumb-divider">/</span><span id="currentPage">概览</span>
   </div>
   <div class="key-box">
-    <input id="apiKey" type="password" placeholder="API Key（config.json 的 api_key）" autocomplete="off">
-    <button id="toggleKey" class="btn ghost icon" title="显示 / 隐藏">👁</button>
+    <span class="key-label">API Key</span>
+    <input id="apiKey" type="password" placeholder="输入 API Key 连接服务" aria-label="API Key（config.json 的 api_key）" autocomplete="off">
+    <button id="toggleKey" class="btn ghost icon" title="显示 / 隐藏" aria-label="显示 API Key" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button>
     <button id="saveKey" class="btn primary">连接</button>
-    <span id="conn" class="conn off" title="未连接">●</span>
+    <span id="conn" class="conn off" title="未连接" role="status" aria-live="polite">未连接</span>
   </div>
 </header>
 
@@ -31,20 +59,7 @@
   <button class="btn mini" id="authBarFocus">去填写</button>
 </div>
 
-<nav class="tabs" id="tabs">
-  <button class="tab active" data-tab="overview">概览</button>
-  <button class="tab" data-tab="accounts">账号</button>
-  <button class="tab" data-tab="requests">请求记录</button>
-  <button class="tab" data-tab="logs">实时日志</button>
-  <button class="tab" data-tab="usage">用量统计</button>
-  <button class="tab" data-tab="health">健康诊断</button>
-  <button class="tab" data-tab="performance">性能统计</button>
-  <button class="tab" data-tab="models">模型</button>
-  <button class="tab" data-tab="chat">聊天测试</button>
-  <button class="tab" data-tab="config">配置</button>
-</nav>
-
-<main>
+<main id="mainContent" tabindex="-1">
 
   <!-- 概览 -->
   <section class="panel active" id="panel-overview">
@@ -302,6 +317,7 @@
   </section>
 
 </main>
+</div>
 
 <!-- 添加账号弹层 -->
 <div class="modal-mask" id="loginModal" hidden>
