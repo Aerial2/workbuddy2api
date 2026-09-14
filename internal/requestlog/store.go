@@ -24,24 +24,28 @@ func (r *Record) NoteFailure(code string) {
 }
 
 type Record struct {
-	ID               uint64    `json:"id"`
-	StartedAt        time.Time `json:"started_at"`
-	FinishedAt       time.Time `json:"finished_at"`
-	DurationMS       int64     `json:"duration_ms"`
-	FirstTokenMS     int64     `json:"first_token_ms"`
-	CompletionTokens int       `json:"completion_tokens"` // -1 = upstream did not report usage
-	Model            string    `json:"model"`
-	Mode             string    `json:"mode"`
-	UID              string    `json:"uid"`
-	Accounts         []string  `json:"accounts"` // last 20 acquired account attempts
-	AttemptDetails   []Attempt `json:"attempt_details"`
-	Attempts         int       `json:"attempts"`
-	Retries          int       `json:"retries"`
-	Status           int       `json:"status"` // HTTP status; stream failures may still be 200
-	Result           string    `json:"result"`
-	ErrorCode        string    `json:"error_code,omitempty"`
-	ErrorMessage     string    `json:"error_message,omitempty"`
-	LastFailure      string    `json:"last_failure,omitempty"`
+	ID                 uint64    `json:"id"`
+	StartedAt          time.Time `json:"started_at"`
+	FinishedAt         time.Time `json:"finished_at"`
+	DurationMS         int64     `json:"duration_ms"`
+	FirstTokenMS       int64     `json:"first_token_ms"`
+	CompletionTokens   int       `json:"completion_tokens"` // -1 = upstream did not report usage
+	Model              string    `json:"model"`
+	Mode               string    `json:"mode"`
+	UID                string    `json:"uid"`
+	Accounts           []string  `json:"accounts"` // last 20 acquired account attempts
+	HasUsage           bool      `json:"has_usage"`
+	PromptTokens       int64     `json:"prompt_tokens"`
+	CachedPromptTokens int64     `json:"cached_prompt_tokens"`
+	ReasoningTokens    int64     `json:"reasoning_tokens"`
+	AttemptDetails     []Attempt `json:"attempt_details"`
+	Attempts           int       `json:"attempts"`
+	Retries            int       `json:"retries"`
+	Status             int       `json:"status"` // HTTP status; stream failures may still be 200
+	Result             string    `json:"result"`
+	ErrorCode          string    `json:"error_code,omitempty"`
+	ErrorMessage       string    `json:"error_message,omitempty"`
+	LastFailure        string    `json:"last_failure,omitempty"`
 }
 
 type Filter struct {

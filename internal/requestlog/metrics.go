@@ -44,6 +44,8 @@ type Performance struct {
 	Models           []ModelMetrics   `json:"models"`
 	Accounts         []AccountMetrics `json:"accounts"`
 	Slow             []Record         `json:"slow"`
+	Pricing          Pricing          `json:"pricing"`
+	Tokens           TokenMetrics     `json:"tokens"`
 	AttemptsComplete bool             `json:"attempts_complete"`
 }
 
@@ -106,8 +108,9 @@ func measure(rows []Record) Metrics {
 	}
 	return m
 }
-func (s *Store) Performance() Performance {
+func (s *Store) Performance(pricing Pricing) Performance {
 	snap := s.Snapshot()
+	allRows := append([]Record{}, snap.Data...)
 	p := Performance{Metrics: measure(snap.Data), Retained: snap.Retained, Capacity: snap.Capacity, Dropped: snap.Dropped, Models: []ModelMetrics{}, Accounts: []AccountMetrics{}, Slow: []Record{}, AttemptsComplete: true}
 	byModel := map[string][]Record{}
 	accounts := map[string]*AccountMetrics{}
@@ -172,5 +175,7 @@ func (s *Store) Performance() Performance {
 		snap.Data = snap.Data[:10]
 	}
 	p.Slow = snap.Data
+	p.Pricing = pricing
+	p.Tokens = tokenMetrics(allRows, pricing)
 	return p
 }

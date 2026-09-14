@@ -153,7 +153,7 @@ $$('#tabs .tab').forEach((btn) => {
     if (t === 'logs') loadRealtimeLogs('latest', true);
     if (t === 'usage') loadUsageStats();
     if (t === 'health') loadDiagnostics();
-    if (t === 'performance') loadPerformance();
+    if (t === 'performance') { loadPerformance(); void loadPricingIntoForm(); }
     if (t === 'models') loadModels();
     if (t === 'chat') loadModels(true);
     if (t === 'config') loadConfig();
@@ -426,9 +426,52 @@ function loadPerformance() {
     const p = data.stats; if (!p || !Array.isArray(p.models) || !Array.isArray(p.slow)) throw new Error('性能统计响应格式无效');
     $('#performanceHint').textContent = `仅覆盖本次启动后保留的日志：${p.retained} / ${p.capacity} 条，已淘汰 ${p.dropped} 条。启动：${fmtTime(data.started_at)}；样本：${fmtTime(p.oldest)} 至 ${fmtTime(p.latest)}。${p.attempts_complete ? '' : '部分日志缺少账号尝试明细，超时、限流计数不完整。'}`;
     $('#performanceCards').innerHTML = [card('请求成功率', fmtPercent(p.success_rate), `${p.success} / ${p.requests} 次`, 'ok'), card('平均耗时', fmtMS(p.average_ms)), card('P95 耗时', fmtMS(p.p95_ms)), card('首帧平均耗时', fmtMS(p.first_frame_ms), `${p.first_frame_samples} 个流式样本`), card('请求重试比例', fmtPercent(p.retry_rate), `${p.retried} 个请求 · 重试 ${p.retries} 次`), card('超时 / 限流', `${p.timeouts} / ${p.rate_limits}`, '按账号尝试计数')].join('');
+    const tk = p.tokens || {};
+    renderTokenCards(tk);
     $('#performanceModels tbody').innerHTML = p.models.map((m) => `<tr><td class="wrap-text mono">${esc(m.model)}</td><td>${esc(m.requests)}</td><td>${esc(fmtPercent(m.success_rate))}</td><td>${esc(fmtMS(m.average_ms))}</td><td>${esc(fmtMS(m.p95_ms))}</td><td>${esc(fmtMS(m.first_frame_ms))} / ${esc(m.first_frame_samples)}</td><td>${esc(fmtPercent(m.retry_rate))}</td><td>${esc(m.timeouts)} / ${esc(m.rate_limits)}</td></tr>`).join('') || '<tr><td colspan="8">暂无请求样本。</td></tr>';
     $('#slowRequests tbody').innerHTML = p.slow.map((r) => `<tr><td>#${esc(r.id)} · ${esc(fmtTime(r.started_at))}</td><td class="wrap-text mono">${esc(r.model || '-')}</td><td class="wrap-text mono">${esc(r.uid || '-')}</td><td>${esc(fmtMS(r.duration_ms))}</td><td>${r.result === 'success' ? '成功' : '失败'}</td><td>${esc(r.retries)}</td></tr>`).join('') || '<tr><td colspan="6">暂无请求样本。</td></tr>';
   });
+}
+
+function fmtCompact(n) {
+  if (!Number.isFinite(n)) return '-';
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+  return String(Math.round(n));
+}
+function renderTokenCards(tk) {
+  const hasSamples = (tk.with_usage || 0) > 0;
+  const hitRate = tk.cache_hit_rate == null ? '—' : Number(tk.cache_hit_rate).toFixed(2) + '%';
+  const cacheSub = hasSamples
+    ? `缓存读 ${fmtCompact(tk.cached_prompt || 0)} / 计入 ${fmtCompact(tk.cacheable_prompt || 0)}`
+    : '暂无已上报 usage 的请求';
+  const rounds = hasSamples ? fmtCompact(tk.with_usage) : '—';
+  const roundsSub = `${tk.with_usage || 0} 次成功请求 · 未知 Token ${tk.abnormal || 0} 次`;
+  const promptMain = hasSamples ? fmtCompact(tk.prompt || 0) : '—';
+  const promptSub = `补全 ${fmtCompact((tk.prompt || 0) - (tk.cached_prompt || 0))} · 思考 ${fmtCompact(tk.reasoning || 0)} · 合计 ${fmtCompact(tk.total_tokens || 0)}`;
+  let valueMain = '—', valueSub = '尚未设置单价';
+  const est = tk.estimate;
+  if (est && est.amount != null) {
+    valueMain = '$' + Number(est.amount).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const pr = est.pricing || {};
+    valueSub = `输入 ${pr.input_per_m ?? '-'} · 缓存 ${pr.cached_input_per_m ?? '-'} · 输出 ${pr.output_per_m ?? '-'} $/M`;
+  } else if (est && est.unknown_turns > 0) {
+    valueSub = `${est.unknown_turns} 次请求无 usage，未计入`;
+  }
+  $('#tokenCards').innerHTML = [
+    card('缓存命中率', hitRate, cacheSub, hasSamples && (tk.cache_hit_rate || 0) >= 50 ? 'ok' : ''),
+    card('对话轮次', rounds, roundsSub, ''),
+    card('Token 消耗', promptMain, promptSub, hasSamples ? 'info' : ''),
+    card('价值估算（估）', valueMain, valueSub, ''),
+  ].join('');
+  if (est && est.amount != null) {
+    $('#pricingHint').className = 'dashboard-notice';
+    $('#pricingHint').textContent = `按当前单价估算为 $${Number(est.amount).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}，仅覆盖本次启动保留的日志，不代表官网积分账单（真实消耗见「请求记录」）。`;
+  } else {
+    $('#pricingHint').className = 'dashboard-notice warn';
+    $('#pricingHint').textContent = '尚未设置任何单价，价值估算暂不可用；填写并保存后立即生效。';
+  }
 }
 function loadDiagnostics(force = false) {
   return dashboardLoad('health', (signal) => api('/admin/api/diagnostics', { signal }), (data) => {
@@ -446,6 +489,33 @@ function loadDiagnostics(force = false) {
 $('#refreshUsageStats').addEventListener('click', () => loadUsageStats(true));
 $$('#usagePeriod, #usageAccount').forEach((el) => el.addEventListener('change', () => loadUsageStats()));
 $('#refreshPerformance').addEventListener('click', loadPerformance);
+async function loadPricingIntoForm() {
+  try {
+    const p = await api('/admin/api/pricing');
+    $('#priceInput').value = p.input_per_m ?? '';
+    $('#priceCached').value = p.cached_input_per_m ?? '';
+    $('#priceOutput').value = p.output_per_m ?? '';
+  } catch (e) { /* 未连接时留空，保存时会提示 */ }
+}
+$('#savePricing').addEventListener('click', async () => {
+  const parse = (id) => {
+    const raw = $(id).value.trim();
+    if (raw === '') return null;
+    const v = Number(raw);
+    if (!Number.isFinite(v) || v < 0 || v > 100000) throw new Error('单价必须是 0 至 100000 的数字，或留空');
+    return v;
+  };
+  let body;
+  try {
+    body = { input_per_m: parse('#priceInput'), cached_input_per_m: parse('#priceCached'), output_per_m: parse('#priceOutput') };
+  } catch (e) { toast(e.message, 'err'); return; }
+  try {
+    await api('/admin/api/pricing', { method: 'PUT', body: JSON.stringify(body) });
+    toast('单价已保存', 'ok');
+    loadPerformance();
+  } catch (e) { toast('保存失败：' + e.message, 'err'); }
+});
+$$('#priceInput, #priceCached, #priceOutput').forEach((el) => el.addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#savePricing').click(); }));
 $('#refreshDiagnostics').addEventListener('click', () => loadDiagnostics(true));
 $('#healthChatTest').addEventListener('click', () => $('#tabs [data-tab="chat"]').click());
 setInterval(() => {
@@ -1165,7 +1235,7 @@ $('#saveKey').addEventListener('click', async () => {
     if ($('#panel-logs').classList.contains('active')) loadRealtimeLogs('latest', true);
     if ($('#panel-usage').classList.contains('active')) loadUsageStats();
     if ($('#panel-health').classList.contains('active')) loadDiagnostics();
-    if ($('#panel-performance').classList.contains('active')) loadPerformance();
+    if ($('#panel-performance').classList.contains('active')) { loadPerformance(); void loadPricingIntoForm(); }
   }
 });
 

@@ -76,7 +76,7 @@ func diagnose(st pool.Status, recent requestlog.AccountMetrics, now time.Time) a
 }
 func (h *Handler) getPerformance(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, 200, map[string]any{"started_at": h.d.StartedAt, "generated_at": h.now(), "stats": h.d.RequestLogs.Performance()})
+	writeJSON(w, 200, map[string]any{"started_at": h.d.StartedAt, "generated_at": h.now(), "stats": h.d.RequestLogs.Performance(h.pricing.get())})
 }
 func (h *Handler) getDiagnostics(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
@@ -85,7 +85,7 @@ func (h *Handler) getDiagnostics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := h.now()
-	p := h.d.RequestLogs.Performance()
+	p := h.d.RequestLogs.Performance(h.pricing.get())
 	byUID := map[string]requestlog.AccountMetrics{}
 	for _, a := range p.Accounts {
 		byUID[a.UID] = a

@@ -224,6 +224,7 @@ func main() {
 	requestLogs := requestlog.New()
 	adminHandler := admin.New(admin.Deps{
 		RequestLogs: requestLogs,
+		PricingFile: filepath.Join(filepath.Dir(absCfgPath), "pricing.json"),
 		Pool:        p,
 		Upstream:    up,
 		APIKey:      cfg.APIKey,

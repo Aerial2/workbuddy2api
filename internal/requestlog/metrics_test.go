@@ -12,7 +12,7 @@ func TestPerformanceMetrics(t *testing.T) {
 	s.Add(Record{StartedAt: now, FinishedAt: now.Add(time.Second), Model: "a", UID: "good", Result: "success", DurationMS: 1000, Mode: "stream", FirstTokenMS: 100, Attempts: 2, Retries: 1, AttemptDetails: []Attempt{{UID: "bad", ErrorCode: "soft_rate"}, {UID: "good"}}})
 	s.Add(Record{StartedAt: now, FinishedAt: now.Add(3 * time.Second), Model: "a", UID: "bad", Result: "failed", ErrorCode: "timeout", DurationMS: 3000, Attempts: 1, AttemptDetails: []Attempt{{UID: "bad", ErrorCode: "timeout"}}})
 	s.Add(Record{StartedAt: now, FinishedAt: now.Add(2 * time.Second), Model: "b", UID: "good", Result: "success", DurationMS: 2000, Attempts: 1, AttemptDetails: []Attempt{{UID: "good"}}})
-	p := s.Performance()
+	p := s.Performance(Pricing{})
 	if p.Requests != 3 || p.Success != 2 || p.Retried != 1 || p.Retries != 1 || p.Timeouts != 1 || p.RateLimits != 1 || !p.AttemptsComplete {
 		t.Fatalf("metrics=%+v", p)
 	}
@@ -33,19 +33,19 @@ func TestPerformanceMetrics(t *testing.T) {
 }
 func TestPerformanceEmptyAndRetainedOnly(t *testing.T) {
 	s := New()
-	p := s.Performance()
+	p := s.Performance(Pricing{})
 	if p.SuccessRate != nil || p.P95MS != nil || p.FirstFrameMS != nil || p.RetryRate != nil || p.Requests != 0 {
 		t.Fatal("empty samples became zero percentages")
 	}
 	for i := 0; i < 1005; i++ {
 		s.Add(Record{Result: "success", DurationMS: int64(i)})
 	}
-	p = s.Performance()
+	p = s.Performance(Pricing{})
 	if p.Requests != 1000 || p.Dropped != 5 || len(p.Slow) != 10 || p.Slow[0].DurationMS != 1004 {
 		t.Fatalf("retention=%+v", p)
 	}
 	s.Add(Record{Attempts: 2, UID: "old"})
-	if s.Performance().AttemptsComplete {
+	if s.Performance(Pricing{}).AttemptsComplete {
 		t.Fatal("missing attempt details not marked incomplete")
 	}
 }

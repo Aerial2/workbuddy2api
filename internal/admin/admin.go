@@ -44,6 +44,8 @@ type Deps struct {
 	APIKey string
 	// AuthDir 账号凭证目录（添加账号时落盘位置）。
 	AuthDir string
+	// PricingFile 单价配置文件路径（估算 Token 价值用；空 = 不持久化）。
+	PricingFile string
 	// ConfigPath 配置文件路径（展示用）。
 	ConfigPath string
 	// ConfigFile 读取 config.json 原始对象（含明文密钥，仅进程内使用）。
@@ -60,11 +62,12 @@ type Deps struct {
 
 // Handler 管理界面入口（挂载在 /admin/ 下，已由上层 StripPrefix）。
 type Handler struct {
-	d      Deps
-	api    *http.ServeMux
-	assets http.Handler
-	now    func() time.Time
-	usage  usageStatsState
+	d       Deps
+	api     *http.ServeMux
+	assets  http.Handler
+	now     func() time.Time
+	pricing pricingState
+	usage   usageStatsState
 }
 
 // New 构建管理界面 handler。
@@ -80,6 +83,7 @@ func New(d Deps) *Handler {
 		assets: http.FileServer(http.FS(sub)),
 		now:    time.Now,
 	}
+	h.pricing.file = d.PricingFile
 	h.routes()
 	return h
 }
@@ -91,6 +95,8 @@ func (emptyFS) Open(string) (fs.File, error) { return nil, fs.ErrNotExist }
 
 func (h *Handler) routes() {
 	h.api.HandleFunc("GET /api/usage-stats", h.getUsageStats)
+	h.api.HandleFunc("GET /api/pricing", h.getPricing)
+	h.api.HandleFunc("PUT /api/pricing", h.putPricing)
 	h.api.HandleFunc("GET /api/performance", h.getPerformance)
 	h.api.HandleFunc("GET /api/diagnostics", h.getDiagnostics)
 	h.api.HandleFunc("GET /api/request-logs", h.getRequestLogs)

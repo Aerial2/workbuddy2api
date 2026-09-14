@@ -208,6 +208,16 @@
     <h3>耗时最高的 10 条请求</h3>
     <div class="table-wrap"><table class="data" id="slowRequests"><thead><tr><th>本地序号 / 时间</th><th>模型</th><th>最后账号</th><th>耗时</th><th>结果</th><th>重试次数</th></tr></thead><tbody></tbody></table></div>
     <p class="hint">超时、限流按账号尝试次数计算，因此同一个请求可以计数多次；重试比例按发生过重试的请求数 / 总请求数计算。空样本显示「—」，不代表 0% 成功。</p>
+    <div class="cards" id="tokenCards"></div>
+    <h3>Token 价值估算</h3>
+    <p class="hint">单价为每百万 Token 美元价（按你的实际渠道价格填写），仅保存在本服务目录 pricing.json，只影响这里的估算显示，不会改动账号池或积分账单。缓存读单价与普通输入单价的差额即缓存节省。</p>
+    <div class="row">
+      <label>输入单价 $/M<input type="number" id="priceInput" min="0" max="100000" step="0.01" placeholder="留空不估算"></label>
+      <label>缓存读单价 $/M<input type="number" id="priceCached" min="0" max="100000" step="0.01" placeholder="留空不估算"></label>
+      <label>输出单价 $/M<input type="number" id="priceOutput" min="0" max="100000" step="0.01" placeholder="留空不估算"></label>
+      <button class="btn" id="savePricing">保存单价</button>
+    </div>
+    <p class="dashboard-notice" id="pricingHint" role="status" aria-live="polite"></p>
   </section>
 
   <!-- 模型 -->

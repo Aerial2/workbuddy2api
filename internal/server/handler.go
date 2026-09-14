@@ -451,12 +451,14 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 			if toks, ok := stats.Tokens(); ok {
 				st.toks = toks
 			}
+			applyUsage(record, &stats.usage)
 			rc.Close()
 			return
 		}
 		stats := newChatStatsReaderSince(rc, st.start)
 		resp, err := upstream.Aggregate(stats)
 		rc.Close()
+		applyUsage(record, &stats.usage)
 		if err != nil || stats.parseError || stats.eventError {
 			record.ErrorCode = requestErrorCode(err, "upstream_parse")
 			if stats.eventError {
@@ -472,7 +474,12 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, resp)
 		st.status = http.StatusOK
-		st.toks = completionTokens(resp)
+		if st.toks < 0 {
+			st.toks, _ = completionUsage(resp)
+		}
+		if st.toks < 0 && record.CompletionTokens > 0 {
+			st.toks = record.CompletionTokens
+		}
 		return
 	}
 	msg := "all accounts unavailable (cooling/disabled)"

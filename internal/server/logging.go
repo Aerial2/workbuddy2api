@@ -65,6 +65,7 @@ type chatStatsReader struct {
 	parseError bool
 	eventError bool
 	ended      bool
+	usage      usageSnapshot
 }
 
 // newChatStatsReaderSince 以 since 为 TTFB 计时起点（通常是请求进入 handler 的时刻）。
@@ -104,17 +105,21 @@ func (s *chatStatsReader) parseSSELine(line string) {
 	if raw, ok := event["error"]; ok && string(raw) != "null" {
 		s.eventError = true
 	}
+	captureUsage(&s.usage, []byte(payload))
 	var chunk struct {
 		Usage *struct {
-			CompletionTokens int `json:"completion_tokens"`
+			CompletionTokens *int `json:"completion_tokens"`
 		} `json:"usage"`
 	}
-	if json.Unmarshal([]byte(payload), &chunk) != nil || chunk.Usage == nil {
+	if json.Unmarshal([]byte(payload), &chunk) != nil || chunk.Usage == nil || chunk.Usage.CompletionTokens == nil {
 		return
 	}
 	s.hasUsage = true
-	s.tokens = chunk.Usage.CompletionTokens
+	s.tokens = *chunk.Usage.CompletionTokens
 }
+
+// UsageStats returns the observed usage snapshot for request-level accounting.
+func (s *chatStatsReader) UsageStats() usageSnapshot { return s.usage }
 
 // Read 返回原始数据，同时解析统计 TTFB/token。
 func (s *chatStatsReader) Read(p []byte) (int, error) {
